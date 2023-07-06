@@ -36,6 +36,7 @@ import (
 // by executing `go generate` against this file.
 
 //go:generate go generate ./proxy
+//go:generate go generate ./proxy/certfetcher
 //go:generate go generate ./proxy/testdata
 //go:generate go generate ./services/ansible
 //go:generate go generate ./services/dns

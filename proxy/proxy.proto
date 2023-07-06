@@ -84,6 +84,15 @@ message StartStream {
   // to that timeout before proceeding. Each Dial() happens in their
   // own routine so this will not block the overall progress for a stream.
   google.protobuf.Duration dial_timeout = 4;
+
+  // A raw sha256 hash of a DER-encoded public certificate.
+  // If provided, the proxy will check that the target has a cert with
+  // this hash instead of doing normal certificate validation.
+  //
+  // This should NOT be used in typical cases. It exists to make it
+  // possible for a proxy to communicate with servers with broken
+  // certificates.
+  bytes certificate_sha256_fingerprint = 5;
 }
 
 message StartStreamReply {
@@ -157,3 +166,4 @@ message Status {
   // List of messages carrying error details.
   repeated google.protobuf.Any details = 3;
 }
+

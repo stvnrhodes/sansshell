@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/Snowflake-Labs/sansshell/auth/mtls"
+	"github.com/Snowflake-Labs/sansshell/auth/mtls/fingerprint"
 	"github.com/Snowflake-Labs/sansshell/auth/opa"
 	"github.com/Snowflake-Labs/sansshell/auth/opa/rpcauth"
 	"github.com/Snowflake-Labs/sansshell/proxy/server"
@@ -410,7 +411,6 @@ func Run(ctx context.Context, opts ...Option) {
 		streamClient = append(streamClient, clientAuthz.AuthorizeClientStream)
 	}
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(clientCreds),
 		grpc.WithChainUnaryInterceptor(unaryClient...),
 		grpc.WithChainStreamInterceptor(streamClient...),
 		// Use 16MB instead of the default 4MB to allow larger responses
@@ -419,7 +419,7 @@ func Run(ctx context.Context, opts ...Option) {
 	if rs.statsClientHandler != nil {
 		dialOpts = append(dialOpts, grpc.WithStatsHandler(rs.statsClientHandler))
 	}
-	targetDialer := server.NewDialer(dialOpts...)
+	targetDialer := server.NewDialerWithSha256FingerprintCheck(clientCreds, dialOpts...)
 
 	svcMap := server.LoadGlobalServiceMap()
 	rs.logger.Info("loaded service map", "serviceMap", svcMap)
@@ -471,21 +471,30 @@ func Run(ctx context.Context, opts ...Option) {
 }
 
 // extractClientTransportCredentialsFromRunState extracts transport credentials from runState. Will error if both credSource and tlsConfig are specified
-func extractClientTransportCredentialsFromRunState(ctx context.Context, rs *runState) (credentials.TransportCredentials, error) {
-	var creds credentials.TransportCredentials
-	var err error
+func extractClientTransportCredentialsFromRunState(ctx context.Context, rs *runState) (server.Sha256FingerprintCertTransportCredentials, error) {
 	if rs.credSource != "" && rs.tlsConfig != nil {
 		return nil, fmt.Errorf("both credSource and tlsConfig are defined for the client")
 	}
 	if rs.credSource != "" {
-		creds, err = mtls.LoadClientCredentials(ctx, rs.credSource)
+		creds, err := mtls.LoadServerCredentials(ctx, rs.credSource)
 		if err != nil {
 			return nil, err
 		}
+		return func(certFingerprint []byte) credentials.TransportCredentials {
+			if len(certFingerprint) == 0 {
+				return creds
+			}
+			return creds.(*mtls.WrappedTransportCredentials).WithSha256FingerprintCheck(certFingerprint)
+		}, nil
 	} else {
-		creds = credentials.NewTLS(rs.tlsConfig)
+		creds := rs.tlsConfig
+		return func(certFingerprint []byte) credentials.TransportCredentials {
+			if len(certFingerprint) == 0 {
+				return credentials.NewTLS(creds)
+			}
+			return credentials.NewTLS(fingerprint.WithSha256Check(creds, certFingerprint))
+		}, nil
 	}
-	return creds, nil
 }
 
 // extractServerTransportCredentialsFromRunState extracts transport credentials from runState. Will error if both credSource and tlsConfig are specified

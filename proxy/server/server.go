@@ -25,6 +25,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/Snowflake-Labs/sansshell/auth/opa/rpcauth"
 	pb "github.com/Snowflake-Labs/sansshell/proxy"
@@ -46,6 +47,7 @@ var (
 // the proxy can use without needing to understand them.
 type TargetDialer interface {
 	DialContext(ctx context.Context, target string, dialOpts ...grpc.DialOption) (ClientConnCloser, error)
+	NewDialerForSha256Fingerprint(certFingerprint []byte) TargetDialer
 }
 
 // ClientConnCloser is a closeable grpc.ClientConnInterface
@@ -54,22 +56,49 @@ type ClientConnCloser interface {
 	Close() error
 }
 
+// Sha256FingerprintCertTransportCredentials returns transport credentials
+// that can be used to allow an exact cert. If an empty fingerprint is
+// passed in, it should return transport credentials that perform normal TLS
+// validation
+type Sha256FingerprintCertTransportCredentials func(certFingerprint []byte) credentials.TransportCredentials
+
 // an optionsDialer implements TargetDialer using native grpc.Dial
 type optionsDialer struct {
-	opts []grpc.DialOption
+	opts            []grpc.DialOption
+	fingerprinter   Sha256FingerprintCertTransportCredentials
+	certFingerprint []byte
 }
 
 // See TargetDialer.DialContext
 func (o *optionsDialer) DialContext(ctx context.Context, target string, dialOpts ...grpc.DialOption) (ClientConnCloser, error) {
 	opts := o.opts
+	if o.fingerprinter != nil {
+		opts = append(opts, grpc.WithTransportCredentials(o.fingerprinter(o.certFingerprint)))
+	}
 	opts = append(opts, dialOpts...)
 	return grpc.DialContext(ctx, target, opts...)
 }
 
+func (o *optionsDialer) NewDialerForSha256Fingerprint(certFingerprint []byte) TargetDialer {
+	return &optionsDialer{
+		opts:            o.opts,
+		fingerprinter:   o.fingerprinter,
+		certFingerprint: certFingerprint,
+	}
+}
+
 // NewDialer creates a new TargetDialer that uses grpc.Dial with the
 // supplied DialOptions
+//
+// Deprecated: Use NewDialerWithSha256FingerprintCheck
 func NewDialer(opts ...grpc.DialOption) TargetDialer {
 	return &optionsDialer{opts: opts}
+}
+
+// NewDialer creates a new TargetDialer that uses grpc.Dial with the
+// supplied DialOptions
+func NewDialerWithSha256FingerprintCheck(fingerprinter Sha256FingerprintCertTransportCredentials, opts ...grpc.DialOption) TargetDialer {
+	return &optionsDialer{opts: opts, fingerprinter: fingerprinter}
 }
 
 // Server implements proxy.ProxyServer

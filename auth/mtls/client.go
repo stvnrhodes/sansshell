@@ -36,12 +36,13 @@ func LoadClientCredentials(ctx context.Context, loaderName string) (credentials.
 	if err != nil {
 		return nil, err
 	}
-	creds, err := internalLoadClientCredentials(ctx, loaderName)
+	config, err := internalLoadClientCredentials(ctx, loaderName)
 	if err != nil {
 		return nil, err
 	}
 	wrapped := &WrappedTransportCredentials{
-		creds:      creds,
+		creds:      credentials.NewTLS(config),
+		tlsConfig:  config,
 		loaderName: loaderName,
 		loader:     internalLoadClientCredentials,
 		mtlsLoader: mtlsLoader,
@@ -51,7 +52,7 @@ func LoadClientCredentials(ctx context.Context, loaderName string) (credentials.
 	return wrapped, nil
 }
 
-func internalLoadClientCredentials(ctx context.Context, loaderName string) (credentials.TransportCredentials, error) {
+func internalLoadClientCredentials(ctx context.Context, loaderName string) (*tls.Config, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 	loader, err := Loader(loaderName)
 	if err != nil {
@@ -68,10 +69,16 @@ func internalLoadClientCredentials(ctx context.Context, loaderName string) (cred
 		return nil, err
 	}
 	logger.Info("loaded new client cert", "error", err)
-	return NewClientCredentials(cert, pool), nil
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      pool,
+		MinVersion:   tls.VersionTLS13,
+	}, nil
 }
 
 // NewClientCredentials returns transport credentials for SansShell clients.
+//
+// Deprecated: This function is unused by SansShell itself
 func NewClientCredentials(cert tls.Certificate, CAPool *x509.CertPool) credentials.TransportCredentials {
 	return credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -82,6 +89,8 @@ func NewClientCredentials(cert tls.Certificate, CAPool *x509.CertPool) credentia
 
 // LoadClientTLS reads the certificates and keys from disk at the supplied paths,
 // and assembles them into a set of TransportCredentials for the gRPC client.
+//
+// Deprecated: This function is unused by SansShell itself
 func LoadClientTLS(clientCertFile, clientKeyFile string, CAPool *x509.CertPool) (credentials.TransportCredentials, error) {
 	// Read in client credentials
 	cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)

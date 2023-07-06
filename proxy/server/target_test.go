@@ -38,6 +38,9 @@ type dialErrTargetDialer codes.Code
 func (e dialErrTargetDialer) DialContext(ctx context.Context, target string, dialOpts ...grpc.DialOption) (ClientConnCloser, error) {
 	return nil, status.Error(codes.Code(e), "")
 }
+func (e dialErrTargetDialer) NewDialerForSha256Fingerprint(certFingerprint []byte) TargetDialer {
+	return e
+}
 
 func TestEmptyStreamSet(t *testing.T) {
 	ctx := context.Background()
@@ -159,6 +162,10 @@ type blockingClientDialer struct{}
 
 func (b blockingClientDialer) DialContext(ctx context.Context, target string, dialOpts ...grpc.DialOption) (ClientConnCloser, error) {
 	return blockingClientConn{}, nil
+}
+
+func (b blockingClientDialer) NewDialerForSha256Fingerprint(certFingerprint []byte) TargetDialer {
+	return b
 }
 
 func TestTargetStreamAddNonBlocking(t *testing.T) {

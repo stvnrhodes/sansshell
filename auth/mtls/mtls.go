@@ -27,6 +27,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/Snowflake-Labs/sansshell/auth/mtls/fingerprint"
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc/credentials"
@@ -87,11 +88,12 @@ type WrappedTransportCredentials struct {
 	// need mutex protection.
 
 	mu         sync.RWMutex
+	tlsConfig  *tls.Config                      // GUARDED_BY(mu)
 	creds      credentials.TransportCredentials // GUARDED_BY(mu)
 	loaderName string
 	serverName string // GUARDED_BY(mu)
 	mtlsLoader CredentialsLoader
-	loader     func(context.Context, string) (credentials.TransportCredentials, error)
+	loader     func(context.Context, string) (*tls.Config, error)
 	logger     logr.Logger
 	recorder   metrics.MetricsRecorder
 }
@@ -110,7 +112,8 @@ func (w *WrappedTransportCredentials) checkRefresh() error {
 		}
 		w.mu.Lock()
 		defer w.mu.Unlock()
-		w.creds = newCreds
+		w.tlsConfig = newCreds
+		w.creds = credentials.NewTLS(newCreds)
 		if w.serverName != "" {
 			return w.creds.OverrideServerName(w.serverName) //nolint:staticcheck
 		}
@@ -163,6 +166,7 @@ func (w *WrappedTransportCredentials) Clone() credentials.TransportCredentials {
 	defer w.mu.Unlock()
 	wrapped := &WrappedTransportCredentials{
 		creds:      w.creds.Clone(),
+		tlsConfig:  w.tlsConfig.Clone(),
 		loaderName: w.loaderName,
 		loader:     w.loader,
 		mtlsLoader: w.mtlsLoader,
@@ -180,6 +184,13 @@ func (w *WrappedTransportCredentials) OverrideServerName(s string) error {
 	defer w.mu.Unlock()
 	w.serverName = s
 	return w.creds.OverrideServerName(s) //nolint:staticcheck
+}
+
+func (w *WrappedTransportCredentials) WithSha256FingerprintCheck(hash []byte) credentials.TransportCredentials {
+	cloned := w.Clone().(*WrappedTransportCredentials)
+	cloned.tlsConfig = fingerprint.WithSha256Check(cloned.tlsConfig, hash)
+	cloned.creds = credentials.NewTLS(cloned.tlsConfig)
+	return cloned
 }
 
 // Register associates a name with a mechanism for loading credentials.

@@ -39,12 +39,12 @@ func LoadServerCredentials(ctx context.Context, loaderName string) (credentials.
 	if err != nil {
 		return nil, err
 	}
-	creds, err := internalLoadServerCredentials(ctx, loaderName)
+	config, err := internalLoadServerCredentials(ctx, loaderName)
 	if err != nil {
 		return nil, err
 	}
 	wrapped := &WrappedTransportCredentials{
-		creds:      creds,
+		creds:      credentials.NewTLS(config),
 		loaderName: loaderName,
 		loader:     internalLoadServerCredentials,
 		mtlsLoader: mtlsLoader,
@@ -54,7 +54,7 @@ func LoadServerCredentials(ctx context.Context, loaderName string) (credentials.
 	return wrapped, nil
 }
 
-func internalLoadServerCredentials(ctx context.Context, loaderName string) (credentials.TransportCredentials, error) {
+func internalLoadServerCredentials(ctx context.Context, loaderName string) (*tls.Config, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 	loader, err := Loader(loaderName)
 	if err != nil {
@@ -71,11 +71,18 @@ func internalLoadServerCredentials(ctx context.Context, loaderName string) (cred
 		return nil, err
 	}
 	logger.Info("loaded new server cert", "error", err)
-	return NewServerCredentials(cert, pool), nil
+	return &tls.Config{
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    pool,
+		MinVersion:   tls.VersionTLS13,
+	}, nil
 }
 
 // NewServerCredentials creates transport credentials for a SansShell server.
 // NOTE: This doesn't support reloadable credentials.
+//
+// Deprecated: This function is unused by SansShell itself
 func NewServerCredentials(cert tls.Certificate, CAPool *x509.CertPool) credentials.TransportCredentials {
 	return credentials.NewTLS(&tls.Config{
 		ClientAuth:   tls.RequireAndVerifyClientCert,
@@ -88,6 +95,8 @@ func NewServerCredentials(cert tls.Certificate, CAPool *x509.CertPool) credentia
 // LoadServerTLS reads the certificates and keys from disk at the supplied paths,
 // and assembles them into a set of TransportCredentials for the gRPC server.
 // NOTE: This doesn't support reloadable credentials.
+//
+// Deprecated: This function is unused by SansShell itself
 func LoadServerTLS(clientCertFile, clientKeyFile string, CAPool *x509.CertPool) (credentials.TransportCredentials, error) {
 	// Read in client credentials
 	cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)

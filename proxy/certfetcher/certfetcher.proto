@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option go_package = "github.com/Snowflake-Labs/sansshell/proxy/certfetcher";
+
+
+package CertFetcher;
+
+service CertFetcher {
+    // Fetch a certificate from a target by initiating a TLS connection.
+    // This intentionally does NOT validate the chain-of-trust for the
+    // certificate. It's meant to give a way to discover the certificate
+    // used by the target in cases where only the proxy has direct network
+    // connectivity to the target.
+    rpc Get(GetCertRequest) returns (GetCertReply) {}
+  }
+  
+  message GetCertRequest {
+    // The target to query, as accepted by tls.Dial
+    string target = 1;
+  }
+  
+  message GetCertReply {
+    // Complete ASN.1 DER content (certificate, signature algorithm and signature) of
+    // all certificates in the certificate chain presented by the target. The first
+    // element is the leaf certificate.
+    repeated bytes raw_certificate_chain = 1;
+  }
+  

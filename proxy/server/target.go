@@ -475,7 +475,7 @@ func (t *TargetStreamSet) Add(ctx context.Context, req *pb.StartStream, replyCha
 		d := req.DialTimeout.AsDuration()
 		dialTimeout = &d
 	}
-	stream, err := NewTargetStream(ctx, req.GetTarget(), t.targetDialer, dialTimeout, serviceMethod, t.authorizer)
+	stream, err := NewTargetStream(ctx, req.GetTarget(), t.targetDialer.NewDialerForSha256Fingerprint(req.GetCertificateSha256Fingerprint()), dialTimeout, serviceMethod, t.authorizer)
 	if err != nil {
 		reply.GetStartStreamReply().Reply = &pb.StartStreamReply_ErrorStatus{
 			ErrorStatus: convertStatus(status.New(codes.Internal, err.Error())),
