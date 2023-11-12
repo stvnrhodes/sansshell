@@ -36,9 +36,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
-
 	"github.com/Snowflake-Labs/sansshell/auth/opa"
 	"github.com/Snowflake-Labs/sansshell/testing/testutil"
 )
@@ -93,8 +90,6 @@ func TestAuthzHook(t *testing.T) {
 	fn := func(p, a string) {
 		logs = a
 	}
-	logger := funcr.New(fn, funcr.Options{Verbosity: 2})
-	ctx = logr.NewContext(ctx, logger)
 	// This way the tests exercise the logging code.
 	policy, err := opa.NewAuthzPolicy(ctx, policyString)
 	testutil.FatalOnErr("NewAuthzPolicy", err, t)

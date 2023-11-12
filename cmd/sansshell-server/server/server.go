@@ -23,11 +23,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/pprof"
 	"os"
 
-	"github.com/go-logr/logr"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -47,7 +47,6 @@ import (
 // to run a proxy server. Documentation provided below in each
 // WithXXX function.
 type runState struct {
-	logger             logr.Logger
 	credSource         string
 	tlsConfig          *tls.Config
 	hostport           string
@@ -73,15 +72,6 @@ type optionFunc func(context.Context, *runState) error
 
 func (o optionFunc) apply(ctx context.Context, r *runState) error {
 	return o(ctx, r)
-}
-
-// WithLogger applies a logger that is used for all logging. A discard
-// based one is used if none is supplied.
-func WithLogger(l logr.Logger) Option {
-	return optionFunc(func(_ context.Context, r *runState) error {
-		r.logger = l
-		return nil
-	})
 }
 
 // WithPolicy applies an OPA policy used against incoming RPC requests.
@@ -277,12 +267,10 @@ func WithOtelTracing(interceptorOpts ...otelgrpc.Option) Option {
 // Run takes the given context and RunState and starts up a sansshell server.
 // As this is intended to be called from main() it doesn't return errors and will instead exit on any errors.
 func Run(ctx context.Context, opts ...Option) {
-	rs := &runState{
-		logger: logr.Discard(), // Set a default so we can use below.
-	}
+	rs := &runState{}
 	for _, o := range opts {
 		if err := o.apply(ctx, rs); err != nil {
-			rs.logger.Error(err, "error applying option")
+			slog.ErrorContext(ctx, "error applying option", "err", err)
 			os.Exit(1)
 		}
 	}
@@ -290,20 +278,20 @@ func Run(ctx context.Context, opts ...Option) {
 	// If there's a debug port, we want to start it early
 	if rs.debughandler != nil && rs.debugport != "" {
 		go func() {
-			rs.logger.Error(http.ListenAndServe(rs.debugport, rs.debughandler), "Debug handler unexpectedly exited")
+			slog.ErrorContext(ctx, "Debug handler unexpectedly exited", "err", http.ListenAndServe(rs.debugport, rs.debughandler))
 		}()
 	}
 
 	// Start metrics endpoint if both metrics port and handler are configured
 	if rs.metricshandler != nil && rs.metricsport != "" {
 		go func() {
-			rs.logger.Error(http.ListenAndServe(rs.metricsport, rs.metricshandler), "Metrics handler unexpectedly exited")
+			slog.ErrorContext(ctx, "Metrics handler unexpectedly exited", "err", http.ListenAndServe(rs.metricsport, rs.metricshandler))
 		}()
 	}
 
 	creds, err := extractTransportCredentialsFromRunState(ctx, rs)
 	if err != nil {
-		rs.logger.Error(err, "unable to extract transport credentials from runstate", "credsource", rs.credSource)
+		slog.ErrorContext(ctx, "unable to extract transport credentials from runstate", "credsource", rs.credSource, "err", err)
 		os.Exit(1)
 	}
 
@@ -314,7 +302,6 @@ func Run(ctx context.Context, opts ...Option) {
 	var serverOpts []server.Option
 	serverOpts = append(serverOpts, server.WithCredentials(creds))
 	serverOpts = append(serverOpts, server.WithParsedPolicy(rs.policy))
-	serverOpts = append(serverOpts, server.WithLogger(rs.logger))
 	serverOpts = append(serverOpts, server.WithAuthzHook(justificationHook))
 	for _, a := range rs.authzHooks {
 		serverOpts = append(serverOpts, server.WithAuthzHook(a))
@@ -329,7 +316,7 @@ func Run(ctx context.Context, opts ...Option) {
 		serverOpts = append(serverOpts, server.WithRawServerOption(s))
 	}
 	if err := server.Serve(rs.hostport, serverOpts...); err != nil {
-		rs.logger.Error(err, "server.Serve", "hostport", rs.hostport)
+		slog.ErrorContext(ctx, "server.Serve", "hostport", rs.hostport, "err", err)
 		os.Exit(1)
 	}
 }

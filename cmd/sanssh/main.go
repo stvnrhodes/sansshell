@@ -23,12 +23,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
 	"github.com/google/subcommands"
 	"google.golang.org/grpc/metadata"
 
@@ -149,6 +148,8 @@ func main() {
 		log.Fatalf("DEPRECATED: --timeout flag is deprecated. Please use --dial-timeout or --idle-timeout instead. Run `sanssh help` for details")
 	}
 
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.Level(-*verbosity)})))
+
 	// If we're given a --targets-file read it in and stuff into targetsFlag
 	// so it can be processed below as if it was set that way.
 	if *targetsFile != "" {
@@ -179,11 +180,7 @@ func main() {
 		(*targetsFlag.Target)[i] = cmdUtil.ValidateAndAddPortAndTimeout(t, defaultTargetPort, *dialTimeout)
 	}
 
-	clientPolicy := cmdUtil.ChoosePolicy(logr.Discard(), "", *clientPolicyFlag, *clientPolicyFile)
-
-	logOpts := log.Ldate | log.Ltime | log.Lshortfile
-	logger := stdr.New(log.New(os.Stderr, "", logOpts)).WithName("sanssh")
-	stdr.SetVerbosity(*verbosity)
+	clientPolicy := cmdUtil.ChoosePolicy("", *clientPolicyFlag, *clientPolicyFile)
 
 	rs := client.RunState{
 		Proxy:        *proxyAddr,
@@ -197,8 +194,8 @@ func main() {
 		BatchSize:    *batchSize,
 		EnableMPA:    *mpa,
 	}
-	ctx := logr.NewContext(context.Background(), logger)
 
+	ctx := context.Background()
 	if *justification != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, rpcauth.ReqJustKey, *justification)
 	}

@@ -22,11 +22,8 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -59,26 +56,13 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func testLogging(t *testing.T, args, want string) {
-	t.Helper()
-	if !strings.Contains(args, want) {
-		t.Fatalf("didn't get expected logging args. got %q want %q within it", args, want)
-	}
-}
-
 func TestUnaryClient(t *testing.T) {
 	// We need the basics of a connection to satisfy a real ClientConn below.
 	ctx := context.Background()
 	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	testutil.FatalOnErr("Failed to dial bufnet", err, t)
 
-	var args string
-	fn := func(p, a string) {
-		args = a
-	}
-	logger := funcr.New(fn, funcr.Options{})
-
-	intercept := UnaryClientLogInterceptor(logger)
+	intercept := UnaryClientLogInterceptor()
 
 	wantMethod := "foo"
 	wantError := "error"
@@ -87,10 +71,6 @@ func TestUnaryClient(t *testing.T) {
 	// Testing is a little weird. This will be called below when we call intercept. Then additional state
 	// gets set on the error return we test below that.
 	invoker := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
-		// Validate this is a proper logger context.
-		if _, err := logr.FromContext(ctx); err != nil {
-			t.Fatal("didn't get passed a logging context")
-		}
 		// Test the outgoing context has the MD key.
 		md, ok := metadata.FromOutgoingContext(ctx)
 		if !ok {
@@ -102,9 +82,6 @@ func TestUnaryClient(t *testing.T) {
 		if got, want := method, wantMethod; got != want {
 			t.Fatalf("didn't get expected method. got %s want %s", got, want)
 		}
-		// The logging should have happened by now
-		testLogging(t, args, "new client request")
-		testLogging(t, args, mdVal)
 		// Return an error
 		return errors.New(wantError)
 	}
@@ -127,13 +104,7 @@ func TestStreamClient(t *testing.T) {
 	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	testutil.FatalOnErr("Failed to dial bufnet", err, t)
 
-	var args string
-	fn := func(p, a string) {
-		args = a
-	}
-	logger := funcr.New(fn, funcr.Options{})
-
-	intercept := StreamClientLogInterceptor(logger)
+	intercept := StreamClientLogInterceptor()
 
 	wantMethod := "sendError"
 	errorCase := wantMethod
@@ -143,10 +114,6 @@ func TestStreamClient(t *testing.T) {
 	// Testing is a little weird. This will be called below when we call intercept. Then additional state
 	// gets set on the error return we test below that.
 	streamer := func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-		// Validate this is a proper logger context.
-		if _, err := logr.FromContext(ctx); err != nil {
-			t.Fatal("didn't get passed a logging context")
-		}
 		t.Log(method)
 		if wantMethod != errorCase {
 			// Test the outgoing context has the MD key.
@@ -161,9 +128,6 @@ func TestStreamClient(t *testing.T) {
 		if got, want := method, wantMethod; got != want {
 			t.Fatalf("didn't get expected method. got %s want %s", got, want)
 		}
-		// The logging should have happened by now
-		testLogging(t, args, "new client stream")
-		testLogging(t, args, mdVal)
 
 		// Return an error
 		if method == "sendError" {
@@ -192,38 +156,19 @@ func TestStreamClient(t *testing.T) {
 	stream, err = intercept(ctx, nil, conn, wantMethod, streamer)
 	testutil.FatalOnErr("2nd streamer call", err, t)
 
-	if _, err := logr.FromContext(stream.Context()); err != nil {
-		t.Fatal("returned stream doesn't contain a logging context")
-	}
-
 	if err := stream.SendMsg(nil); err == nil {
 		t.Fatal("didn't get error from SendMsg on fake client stream")
 	}
 
-	// The error logging should have happened by now.
-	testLogging(t, args, "SendMsg")
-
 	err = stream.RecvMsg(nil)
 	testutil.FatalOnNoErr("RecvMsg on fake", err, t)
 
-	// The error logging should have happened by now.
-	testLogging(t, args, "RecvMsg")
-
 	err = stream.CloseSend()
 	testutil.FatalOnNoErr("CloseSend on fake", err, t)
-
-	// The error logging should have happened by now.
-	testLogging(t, args, "CloseSend")
 }
 
 func TestUnaryServer(t *testing.T) {
-	var args string
-	fn := func(p, a string) {
-		args = a
-	}
-	logger := funcr.New(fn, funcr.Options{})
-
-	intercept := UnaryServerLogInterceptor(logger)
+	intercept := UnaryServerLogInterceptor()
 
 	wantMethod := "foo"
 	wantError := "error"
@@ -232,15 +177,6 @@ func TestUnaryServer(t *testing.T) {
 	// Testing is a little weird. This will be called below when we call intercept. Then additional state
 	// gets set on the error return we test below that.
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		// Validate this is a proper logger context.
-		if _, err := logr.FromContext(ctx); err != nil {
-			t.Fatal("didn't get passed a logging context")
-		}
-
-		// The logging should have happened by now
-		testLogging(t, args, wantMethod)
-		testLogging(t, args, "new request")
-		testLogging(t, args, mdVal)
 
 		// Return an error
 		return nil, errors.New(wantError)
@@ -262,13 +198,7 @@ func TestUnaryServer(t *testing.T) {
 }
 
 func TestStreamServer(t *testing.T) {
-	var args string
-	fn := func(p, a string) {
-		args = a
-	}
-	logger := funcr.New(fn, funcr.Options{})
-
-	intercept := StreamServerLogInterceptor(logger)
+	intercept := StreamServerLogInterceptor()
 
 	wantMethod := "foo"
 	wantError := "error"
@@ -277,29 +207,13 @@ func TestStreamServer(t *testing.T) {
 	// Testing is a little weird. This will be called below when we call intercept. Then additional state
 	// gets set on the error return we test below that.
 	handler := func(srv interface{}, stream grpc.ServerStream) error {
-		// Validate this is a proper logger context.
-		if _, err := logr.FromContext(stream.Context()); err != nil {
-			t.Fatal("didn't get passed a logging context")
-		}
-
-		// The logging should have happened by now
-		testLogging(t, args, wantMethod)
-		testLogging(t, args, "new stream")
-		testLogging(t, args, mdVal)
-
 		if err := stream.SendMsg(nil); err == nil {
 			t.Fatal("didn't get error from SendMsg on fake client stream")
 		}
 
-		// The error logging should have happened by now.
-		testLogging(t, args, "SendMsg")
-
 		if err := stream.RecvMsg(nil); err == nil {
 			t.Fatal("didn't get error from RecvMsg on fake client stream")
 		}
-		// The error logging should have happened by now.
-		testLogging(t, args, "RecvMsg")
-
 		// Return an error
 		return errors.New(wantError)
 	}

@@ -19,13 +19,12 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	ometric "go.opentelemetry.io/otel/metric"
 )
 
 // OtelRecorder is a struct used for recording metrics with otel
@@ -87,11 +86,11 @@ func (m *OtelRecorder) Counter(ctx context.Context, definition MetricDefinition,
 	definition.Name = addPrefix(m.prefix, definition.Name)
 	options := metric.WithAttributes(attributes...)
 	if counter, exists := m.Int64Counters.Load(definition.Name); exists {
-		counter.(ometric.Int64Counter).Add(ctx, value, options)
+		counter.(metric.Int64Counter).Add(ctx, value, options)
 		return nil
 	}
 
-	counter, err := m.Meter.Int64Counter(definition.Name, ometric.WithDescription(definition.Description))
+	counter, err := m.Meter.Int64Counter(definition.Name, metric.WithDescription(definition.Description))
 	if err != nil {
 		return errors.Wrap(err, "failed to create Int64counter")
 	}
@@ -105,28 +104,26 @@ func (m *OtelRecorder) Counter(ctx context.Context, definition MetricDefinition,
 func (m *OtelRecorder) CounterOrLog(ctx context.Context, metric MetricDefinition, value int64, attributes ...attribute.KeyValue) {
 	err := m.Counter(ctx, metric, value, attributes...)
 	if err != nil {
-		logger := logr.FromContextOrDiscard(ctx)
-		logger.Error(err, "unable to record counter")
+		slog.ErrorContext(ctx, "unable to record counter", "err", err)
 	}
 }
 
 // Gauge registers the gauge along with the callback function that updates its value
-func (m *OtelRecorder) Gauge(ctx context.Context, metric MetricDefinition, callback ometric.Int64Callback, attributes ...attribute.KeyValue) error {
-	metric.Name = addPrefix(m.prefix, metric.Name)
-	gauge, err := m.Meter.Int64ObservableGauge(metric.Name, ometric.WithDescription(metric.Description), ometric.WithInt64Callback(callback))
+func (m *OtelRecorder) Gauge(ctx context.Context, def MetricDefinition, callback metric.Int64Callback, attributes ...attribute.KeyValue) error {
+	def.Name = addPrefix(m.prefix, def.Name)
+	gauge, err := m.Meter.Int64ObservableGauge(def.Name, metric.WithDescription(def.Description), metric.WithInt64Callback(callback))
 	if err != nil {
 		return err
 	}
 
-	m.Int64Gauges.Store(metric.Name, gauge)
+	m.Int64Gauges.Store(def.Name, gauge)
 	return nil
 }
 
 // Counter registers the counter if it's not registered, then increments it
-func (m *OtelRecorder) GaugeOrLog(ctx context.Context, metric MetricDefinition, callback ometric.Int64Callback, attributes ...attribute.KeyValue) {
+func (m *OtelRecorder) GaugeOrLog(ctx context.Context, metric MetricDefinition, callback metric.Int64Callback, attributes ...attribute.KeyValue) {
 	err := m.Gauge(ctx, metric, callback, attributes...)
 	if err != nil {
-		logger := logr.FromContextOrDiscard(ctx)
-		logger.Error(err, "unable to record gauge")
+		slog.ErrorContext(ctx, "unable to record gauge", "err", err)
 	}
 }

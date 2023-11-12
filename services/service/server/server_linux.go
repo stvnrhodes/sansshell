@@ -22,11 +22,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/coreos/go-systemd/v22/dbus"
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -208,7 +208,6 @@ func (s *server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListReply, 
 // See: pb.ServiceServer.Status
 func (s *server) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusReply, error) {
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger := logr.FromContextOrDiscard(ctx)
 	if err := checkSupportedSystem(req.SystemType); err != nil {
 		return nil, err
 	}
@@ -234,20 +233,20 @@ func (s *server) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusR
 	properties, err := conn.GetUnitPropertiesContext(ctx, unitName)
 	if err != nil {
 		recorder.CounterOrLog(ctx, serviceStatusFailureCounter, 1, attribute.String("reason", "get_unit_properties_err"))
-		logger.V(3).Info("GetUnitPropertiesContext err: " + err.Error())
+		slog.DebugContext(ctx, "GetUnitPropertiesContext err: "+err.Error())
 		return nil, status.Errorf(codes.Internal, "failed to get unit properties of %s", req.GetServiceName())
 	}
 	// cast map[string]interface{} to dbus.UnitStatus{} using json marshal + unmarshal
 	propertiesJson, err := json.Marshal(properties)
 	if err != nil {
 		recorder.CounterOrLog(ctx, serviceStatusFailureCounter, 1, attribute.String("reason", "json_marshal_err"))
-		logger.V(3).Info("failed to marshal properties: " + err.Error())
+		slog.DebugContext(ctx, "failed to marshal properties: "+err.Error())
 		return nil, status.Errorf(codes.Internal, "failed to marshal unit properties to json")
 	}
 	unitState := dbus.UnitStatus{}
 	if errUnmarshal := json.Unmarshal(propertiesJson, &unitState); errUnmarshal != nil {
 		recorder.CounterOrLog(ctx, serviceStatusFailureCounter, 1, attribute.String("reason", "json_unmarshal_err"))
-		logger.V(3).Info("failed to unmarshal properties: " + errUnmarshal.Error())
+		slog.DebugContext(ctx, "failed to unmarshal properties: "+errUnmarshal.Error())
 		return nil, status.Errorf(codes.Internal, "failed to unmarshal unit properties to json")
 	}
 	return &pb.StatusReply{

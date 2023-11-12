@@ -20,13 +20,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"os/exec"
 	"sync"
 
 	"github.com/Snowflake-Labs/sansshell/services"
 	pb "github.com/Snowflake-Labs/sansshell/services/fdb"
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -68,12 +68,9 @@ func (s *fdbmovedata) FDBMoveDataCopy(ctx context.Context, req *pb.FDBMoveDataCo
 		return nil, status.Errorf(codes.Internal, "Copy or Wait command already running")
 	}
 	defer s.mu.Unlock()
-	logger := logr.FromContextOrDiscard(ctx)
 	// The sansshell server should only run one copy command at a time
 	if !(s.cmd == nil) {
-		logger.Info("existing command already running. returning early")
-		logger.Info("command details", "cmd", s.cmd.String())
-		logger.Info("command running with id", "id", s.id)
+		slog.InfoContext(ctx, "existing command already running. returning early", "cmd", s.cmd.String(), "id", s.id)
 		earlyresp := &pb.FDBMoveDataCopyResponse{
 			Id:       s.id,
 			Existing: true,
@@ -102,8 +99,7 @@ func (s *fdbmovedata) FDBMoveDataCopy(ctx context.Context, req *pb.FDBMoveDataCo
 		return nil, err
 	}
 
-	logger.Info("executing local command", "cmd", cmd.String())
-	logger.Info("command running with id", "id", s.id)
+	slog.InfoContext(ctx, "executing local command", "cmd", cmd.String(), "id", s.id)
 	s.cmd = cmd
 	s.stdout = stdout
 	s.stderr = stderr
@@ -125,13 +121,12 @@ func (s *fdbmovedata) FDBMoveDataWait(req *pb.FDBMoveDataWaitRequest, stream pb.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := stream.Context()
-	logger := logr.FromContextOrDiscard(ctx)
 	if !(req.Id == s.id) {
-		logger.Info("Provided ID and stored ID do not match", "providedID", req.Id, "storedID", s.id)
+		slog.InfoContext(ctx, "Provided ID and stored ID do not match", "providedID", req.Id, "storedID", s.id)
 		return status.Errorf(codes.Internal, "Provided ID %d does not match stored ID %d", req.Id, s.id)
 	}
 	if s.cmd == nil {
-		logger.Info("No command running on the server")
+		slog.InfoContext(ctx, "No command running on the server")
 		return status.Errorf(codes.Internal, "No command running on the server")
 	}
 	wg := &sync.WaitGroup{}

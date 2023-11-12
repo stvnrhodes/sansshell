@@ -9,7 +9,6 @@
         "chgrp",
         "durationpb",
         "fdbcli",
-        "logr",
         "opentelemetry",
         "otel",
         "protobuf",

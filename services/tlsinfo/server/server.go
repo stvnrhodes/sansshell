@@ -22,11 +22,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 
 	"github.com/Snowflake-Labs/sansshell/services"
 	pb "github.com/Snowflake-Labs/sansshell/services/tlsinfo"
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 )
 
@@ -45,7 +45,6 @@ type server struct{}
 
 func (s *server) GetTLSCertificate(ctx context.Context, req *pb.TLSCertificateRequest) (*pb.TLSCertificateChain, error) {
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger := logr.FromContextOrDiscard(ctx)
 	caPool, err := x509.SystemCertPool()
 	if err != nil {
 		recorder.CounterOrLog(ctx, systemCertPoolFailureCounter, 1)
@@ -56,7 +55,7 @@ func (s *server) GetTLSCertificate(ctx context.Context, req *pb.TLSCertificateRe
 		InsecureSkipVerify: req.InsecureSkipVerify,
 		ServerName:         req.ServerName,
 	}
-	logger.V(3).Info(fmt.Sprintf("GetTLSCertificate: dialing %s with tls config %+v", req.ServerAddress, tlsConf))
+	slog.DebugContext(ctx, "GetTLSCertificate", "target", req.ServerAddress, "tlsconf", tlsConf)
 
 	conn, err := tls.Dial("tcp", req.ServerAddress, tlsConf)
 	if err != nil {

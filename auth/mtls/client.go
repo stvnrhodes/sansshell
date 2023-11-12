@@ -21,16 +21,15 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc/credentials"
 )
 
 // LoadClientCredentials returns transport credentials for SansShell clients,
 // based on the provided `loaderName`
 func LoadClientCredentials(ctx context.Context, loaderName string) (credentials.TransportCredentials, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 	mtlsLoader, err := Loader(loaderName)
 	if err != nil {
@@ -45,14 +44,12 @@ func LoadClientCredentials(ctx context.Context, loaderName string) (credentials.
 		loaderName: loaderName,
 		loader:     internalLoadClientCredentials,
 		mtlsLoader: mtlsLoader,
-		logger:     logger,
 		recorder:   recorder,
 	}
 	return wrapped, nil
 }
 
 func internalLoadClientCredentials(ctx context.Context, loaderName string) (credentials.TransportCredentials, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	loader, err := Loader(loaderName)
 	if err != nil {
 		return nil, err
@@ -62,12 +59,12 @@ func internalLoadClientCredentials(ctx context.Context, loaderName string) (cred
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("loading new client cert")
+	slog.InfoContext(ctx, "loading new client cert")
 	cert, err := loader.LoadClientCertificate(ctx)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("loaded new client cert", "error", err)
+	slog.InfoContext(ctx, "loaded new client cert")
 	return NewClientCredentials(cert, pool), nil
 }
 

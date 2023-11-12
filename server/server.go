@@ -23,7 +23,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
@@ -44,7 +43,6 @@ var (
 type serveSetup struct {
 	creds              credentials.TransportCredentials
 	policy             *opa.AuthzPolicy
-	logger             logr.Logger
 	authzHooks         []rpcauth.RPCAuthzHook
 	unaryInterceptors  []grpc.UnaryServerInterceptor
 	streamInterceptors []grpc.StreamServerInterceptor
@@ -85,15 +83,6 @@ func WithPolicy(policy string) Option {
 func WithParsedPolicy(policy *opa.AuthzPolicy) Option {
 	return optionFunc(func(_ context.Context, s *serveSetup) error {
 		s.policy = policy
-		return nil
-	})
-}
-
-// WithLogger applies a logger that is used for all logging. A discard one is
-// used if none is supplied.
-func WithLogger(l logr.Logger) Option {
-	return optionFunc(func(_ context.Context, s *serveSetup) error {
-		s.logger = l
 		return nil
 	})
 }
@@ -163,9 +152,7 @@ func getSrv() *grpc.Server {
 // primarily facilitates testing.
 func BuildServer(opts ...Option) (*grpc.Server, error) {
 	ctx := context.Background()
-	ss := &serveSetup{
-		logger: logr.Discard(),
-	}
+	ss := &serveSetup{}
 	for _, o := range opts {
 		if err := o.apply(ctx, ss); err != nil {
 			return nil, err
@@ -180,14 +167,14 @@ func BuildServer(opts ...Option) (*grpc.Server, error) {
 	unary := ss.unaryInterceptors
 	unary = append(unary,
 		// Execute log interceptor after other interceptors so that metadata gets logged
-		telemetry.UnaryServerLogInterceptor(ss.logger),
+		telemetry.UnaryServerLogInterceptor(),
 		// Execute authz after logger is setup
 		authz.Authorize,
 	)
 	streaming := ss.streamInterceptors
 	streaming = append(streaming,
 		// Execute log interceptor after other interceptors so that metadata gets logged
-		telemetry.StreamServerLogInterceptor(ss.logger),
+		telemetry.StreamServerLogInterceptor(),
 		// Execute authz after logger is setup
 		authz.AuthorizeStream,
 	)

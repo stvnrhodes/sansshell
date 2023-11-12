@@ -21,9 +21,9 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -35,8 +35,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
-
-	"github.com/go-logr/logr"
 
 	proxypb "github.com/Snowflake-Labs/sansshell/proxy"
 )
@@ -546,10 +544,8 @@ func (p *Conn) createStreams(ctx context.Context, method string) (proxypb.Proxy_
 
 	wg.Wait()
 
-	log := logr.FromContextOrDiscard(ctx)
 	if sendErr != nil || recvErr != nil {
-		err := fmt.Errorf("Setting up streams errors: %v - %v", sendErr, recvErr)
-		log.Error(err, "Setup error")
+		slog.ErrorContext(ctx, "Setting up streams errors", "sendErr", sendErr, "recvErr", recvErr)
 		return nil, nil, errors, err
 	}
 	return stream, streamIds, errors, nil

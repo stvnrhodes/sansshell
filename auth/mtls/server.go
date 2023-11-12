@@ -21,9 +21,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -33,7 +33,6 @@ import (
 // as the TransportCredentials returned are a WrappedTransportCredentials which
 // will check at call time if new certificates are available.
 func LoadServerCredentials(ctx context.Context, loaderName string) (credentials.TransportCredentials, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 	mtlsLoader, err := Loader(loaderName)
 	if err != nil {
@@ -48,14 +47,12 @@ func LoadServerCredentials(ctx context.Context, loaderName string) (credentials.
 		loaderName: loaderName,
 		loader:     internalLoadServerCredentials,
 		mtlsLoader: mtlsLoader,
-		logger:     logger,
 		recorder:   recorder,
 	}
 	return wrapped, nil
 }
 
 func internalLoadServerCredentials(ctx context.Context, loaderName string) (credentials.TransportCredentials, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	loader, err := Loader(loaderName)
 	if err != nil {
 		return nil, err
@@ -65,12 +62,12 @@ func internalLoadServerCredentials(ctx context.Context, loaderName string) (cred
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("loading new server cert")
+	slog.InfoContext(ctx, "loading new server cert")
 	cert, err := loader.LoadServerCertificate(ctx)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("loaded new server cert", "error", err)
+	slog.InfoContext(ctx, "loaded new server cert", "error", err)
 	return NewServerCredentials(cert, pool), nil
 }
 

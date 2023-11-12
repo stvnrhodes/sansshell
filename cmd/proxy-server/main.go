@@ -22,11 +22,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
 	"go.opentelemetry.io/otel"
 	prometheus_exporter "go.opentelemetry.io/otel/exporters/prometheus"
 	otelmetricsdk "go.opentelemetry.io/otel/sdk/metric"
@@ -98,9 +97,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	logOpts := log.Ldate | log.Ltime | log.Lshortfile
-	logger := stdr.New(log.New(os.Stderr, "", logOpts)).WithName("sanshell-proxy")
-	stdr.SetVerbosity(*verbosity)
+	ss.VerbosityLevel.Set(slog.Level(-*verbosity))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: &ss.VerbosityLevel})))
 
 	// Setup exporter using the default prometheus registry
 	exporter, err := prometheus_exporter.New()
@@ -116,9 +114,9 @@ func main() {
 		log.Fatalf("failed to create OtelRecorder: %v\n", err)
 	}
 
-	policy := util.ChoosePolicy(logger, defaultPolicy, *policyFlag, *policyFile)
-	clientPolicy := util.ChoosePolicy(logger, "", *clientPolicyFlag, *clientPolicyFile)
-	ctx := logr.NewContext(context.Background(), logger)
+	ctx := context.Background()
+	policy := util.ChoosePolicy(defaultPolicy, *policyFlag, *policyFile)
+	clientPolicy := util.ChoosePolicy("", *clientPolicyFlag, *clientPolicyFile)
 	ctx = metrics.NewContextWithRecorder(ctx, recorder)
 
 	parsed, err := opa.NewAuthzPolicy(ctx, policy, opa.WithDenialHintsQuery("data.sansshell.authz.denial_hints"))
@@ -134,7 +132,6 @@ func main() {
 	srv := &ss.Server{}
 
 	server.Run(ctx,
-		server.WithLogger(logger),
 		server.WithParsedPolicy(parsed),
 		server.WithClientPolicy(clientPolicy),
 		server.WithCredSource(*credSource),

@@ -18,21 +18,19 @@
 package util
 
 import (
-	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/go-logr/logr"
 )
 
 // ChoosePolicy selects an OPA policy based on the flags, or calls log.Fatal if
 // an invalid combination is provided.
-func ChoosePolicy(logger logr.Logger, defaultPolicy string, policyFlag string, policyFile string) string {
+func ChoosePolicy(defaultPolicy string, policyFlag string, policyFile string) string {
 	if policyFlag != defaultPolicy && policyFile != "" {
-		logger.Error(errors.New("invalid policy flags"), "do not set both --policy and --policy-file")
+		slog.Error("do not set both --policy and --policy-file")
 		os.Exit(1)
 	}
 
@@ -40,16 +38,16 @@ func ChoosePolicy(logger logr.Logger, defaultPolicy string, policyFlag string, p
 	if policyFile != "" {
 		pff, err := os.ReadFile(policyFile)
 		if err != nil {
-			logger.Error(err, "os.ReadFile(policyFile)", "file", policyFile)
+			slog.Error("os.ReadFile(policyFile)", "file", policyFile, "err", err)
 		}
-		logger.Info("using policy from --policy-file", "file", policyFile)
+		slog.Info("using policy from --policy-file", "file", policyFile)
 		policy = string(pff)
 	} else {
 		if policyFlag != defaultPolicy {
-			logger.Info("using policy from --policy")
+			slog.Info("using policy from --policy")
 			policy = policyFlag
 		} else {
-			logger.Info("using built-in policy")
+			slog.Info("using built-in policy")
 			policy = defaultPolicy
 		}
 	}

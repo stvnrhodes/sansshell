@@ -21,10 +21,10 @@ package rpcauth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -96,7 +96,6 @@ func NewWithPolicy(ctx context.Context, policy string, authzHooks ...RPCAuthzHoo
 // prior to policy evaluation, and may mutate `input`, regardless of the
 // the success or failure of policy.
 func (g *Authorizer) Eval(ctx context.Context, input *RPCAuthInput) error {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 
 	redactedInput, err := getRedactedInput(input)
@@ -104,17 +103,17 @@ func (g *Authorizer) Eval(ctx context.Context, input *RPCAuthInput) error {
 		return fmt.Errorf("failed to get redacted input: %v", err)
 	}
 	if input != nil {
-		logger.V(2).Info("evaluating authz policy", "input", redactedInput)
+		slog.DebugContext(ctx, "evaluating authz policy", "input", redactedInput)
 	}
 	if input == nil {
 		err := status.Error(codes.InvalidArgument, "policy input cannot be nil")
-		logger.V(1).Error(err, "failed to evaluate authz policy", "input", redactedInput)
+		slog.ErrorContext(ctx, "failed to evaluate authz policy", "input", redactedInput)
 		recorder.CounterOrLog(ctx, authzFailureInputMissingCounter, 1)
 		return err
 	}
 	for _, hook := range g.hooks {
 		if err := hook.Hook(ctx, input); err != nil {
-			logger.V(1).Error(err, "authz hook error", "input", redactedInput)
+			slog.ErrorContext(ctx, "authz hook error", "input", redactedInput, "err", err)
 			if _, ok := status.FromError(err); ok {
 				// error is already an appropriate status.Status
 				return err
@@ -126,10 +125,10 @@ func (g *Authorizer) Eval(ctx context.Context, input *RPCAuthInput) error {
 	if err != nil {
 		return fmt.Errorf("failed to get redacted input post hooks: %v", err)
 	}
-	logger.V(2).Info("evaluating authz policy post hooks", "input", redactedInput)
+	slog.DebugContext(ctx, "evaluating authz policy post hooks", "input", redactedInput)
 	result, err := g.policy.Eval(ctx, input)
 	if err != nil {
-		logger.V(1).Error(err, "failed to evaluate authz policy", "input", redactedInput)
+		slog.ErrorContext(ctx, "failed to evaluate authz policy", "input", redactedInput, "err", err)
 		recorder.CounterOrLog(ctx, authzFailureEvalErrorCounter, 1, attribute.String("method", input.Method))
 		return status.Errorf(codes.Internal, "authz policy evaluation error: %v", err)
 	}
@@ -138,17 +137,16 @@ func (g *Authorizer) Eval(ctx context.Context, input *RPCAuthInput) error {
 		// We've failed so let's see if we can help tell the user what might have failed.
 		hints, err = g.policy.DenialHints(ctx, input)
 		if err != nil {
-
 			recorder.CounterOrLog(ctx, authzDenialHintErrorCounter, 1, attribute.String("method", input.Method))
 			// We can't do much here besides log that something went wrong
-			logger.V(1).Error(err, "failed to get hints for authz policy denial", "error", err)
+			slog.InfoContext(ctx, "failed to get hints for authz policy denial", "error", err)
 		}
 	}
-	logger.Info("authz policy evaluation result", "authorizationResult", result, "input", redactedInput, "denialHints", hints)
+	slog.InfoContext(ctx, "authz policy evaluation result", "authorizationResult", result, "input", redactedInput, "denialHints", hints)
 	if !result {
 		errRegister := recorder.Counter(ctx, authzDeniedPolicyCounter, 1, attribute.String("method", input.Method))
 		if errRegister != nil {
-			logger.V(1).Error(errRegister, "failed to add counter "+authzDeniedPolicyCounter.Name)
+			slog.InfoContext(ctx, "failed to add counter "+authzDeniedPolicyCounter.Name, "err", errRegister)
 		}
 		if len(hints) > 0 {
 			return status.Errorf(codes.PermissionDenied, "OPA policy does not permit this request: %v", strings.Join(hints, ", "))

@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"gocloud.dev/blob"
 
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -471,7 +471,7 @@ func (s *server) GetMemoryDump(req *pb.GetMemoryDumpRequest, stream pb.Process_G
 			err := dest.Close()
 			if err != nil {
 				recorder.CounterOrLog(ctx, processGetMemoryDumpFailureCounter, 1, attribute.String("reason", "close_bucket_err"))
-				logr.FromContextOrDiscard(stream.Context()).Error(err, "bucket Close", "url", req.GetUrl().Url)
+				slog.ErrorContext(stream.Context(), "bucket Close", "url", req.GetUrl().Url, "err", err)
 			}
 		}()
 	}

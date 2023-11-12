@@ -28,6 +28,7 @@ import (
 	"hash/crc32"
 	"io"
 	"io/fs"
+	"log/slog"
 	"math"
 	"os"
 	"os/user"
@@ -45,7 +46,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -105,7 +105,6 @@ type server struct{}
 // Read returns the contents of the named file
 func (s *server) Read(req *pb.ReadActionRequest, stream pb.LocalFile_ReadServer) error {
 	ctx := stream.Context()
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 
 	r := req.GetFile()
@@ -126,7 +125,7 @@ func (s *server) Read(req *pb.ReadActionRequest, stream pb.LocalFile_ReadServer)
 		return status.Error(codes.InvalidArgument, "must supply a ReadRequest or a TailRequest")
 	}
 
-	logger.Info("read request", "filename", file)
+	slog.InfoContext(ctx, "read request", "filename", file)
 	if err := util.ValidPath(file); err != nil {
 		recorder.CounterOrLog(ctx, localfileReadFailureCounter, 1, attribute.String("reason", "invalid_path"))
 		return err
@@ -140,7 +139,7 @@ func (s *server) Read(req *pb.ReadActionRequest, stream pb.LocalFile_ReadServer)
 	defer func() {
 		if err := f.Close(); err != nil {
 			recorder.CounterOrLog(ctx, localfileReadFailureCounter, 1, attribute.String("reason", "close_err"))
-			logger.Error(err, "file.Close()", "file", file)
+			slog.ErrorContext(ctx, "file.Close()", "file", file, "err", err)
 		}
 	}()
 
@@ -213,7 +212,6 @@ func (s *server) Read(req *pb.ReadActionRequest, stream pb.LocalFile_ReadServer)
 
 func (s *server) Stat(stream pb.LocalFile_StatServer) error {
 	ctx := stream.Context()
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 	for {
 		req, err := stream.Recv()
@@ -225,7 +223,7 @@ func (s *server) Stat(stream pb.LocalFile_StatServer) error {
 			return status.Errorf(codes.Internal, "stat: recv error %v", err)
 		}
 
-		logger.Info("stat", "filename", req.Filename)
+		slog.InfoContext(ctx, "stat", "filename", req.Filename)
 		if err := util.ValidPath(req.Filename); err != nil {
 			recorder.CounterOrLog(ctx, localfileStatFailureCounter, 1, attribute.String("reason", "invalid_path"))
 			return AbsolutePathError
@@ -244,7 +242,6 @@ func (s *server) Stat(stream pb.LocalFile_StatServer) error {
 
 func (s *server) Sum(stream pb.LocalFile_SumServer) error {
 	ctx := stream.Context()
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 	for {
 		req, err := stream.Recv()
@@ -255,7 +252,7 @@ func (s *server) Sum(stream pb.LocalFile_SumServer) error {
 			recorder.CounterOrLog(ctx, localfileSumFailureCounter, 1, attribute.String("reason", "recv_err"))
 			return status.Errorf(codes.Internal, "sum: recv error %v", err)
 		}
-		logger.Info("sum request", "file", req.Filename, "sumtype", req.SumType.String())
+		slog.InfoContext(ctx, "sum request", "file", req.Filename, "sumtype", req.SumType.String())
 		if err := util.ValidPath(req.Filename); err != nil {
 			recorder.CounterOrLog(ctx, localfileSumFailureCounter, 1, attribute.String("reason", "invalid_path"))
 			return AbsolutePathError
@@ -288,7 +285,7 @@ func (s *server) Sum(stream pb.LocalFile_SumServer) error {
 			}
 			defer f.Close()
 			if _, err := io.Copy(hasher, f); err != nil {
-				logger.Error(err, "io.Copy", "file", req.Filename)
+				slog.ErrorContext(ctx, "io.Copy", "file", req.Filename, "err", err)
 				recorder.CounterOrLog(ctx, localfileSumFailureCounter, 1, attribute.String("reason", "copy_err"))
 				return status.Errorf(codes.Internal, "copy/read error: %v", err)
 			}
@@ -377,7 +374,6 @@ func finalizeFile(d *pb.FileWrite, f *os.File, filename string, immutable *immut
 
 func (s *server) Write(stream pb.LocalFile_WriteServer) (retErr error) {
 	ctx := stream.Context()
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 
 	var f *os.File
@@ -416,7 +412,7 @@ func (s *server) Write(stream pb.LocalFile_WriteServer) (retErr error) {
 		return status.Errorf(codes.InvalidArgument, "must send attrs in description")
 	}
 	filename = a.Filename
-	logger.Info("write file", filename)
+	slog.InfoContext(ctx, "write file", filename)
 	f, immutable, err = setupOutput(a)
 	if err != nil {
 		recorder.CounterOrLog(ctx, localfileWriteFailureCounter, 1, attribute.String("reason", "setup_output_err"))
@@ -462,7 +458,6 @@ func (s *server) Write(stream pb.LocalFile_WriteServer) (retErr error) {
 }
 
 func (s *server) Copy(ctx context.Context, req *pb.CopyRequest) (_ *emptypb.Empty, retErr error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 
 	if req.GetDestination() == nil {
@@ -486,7 +481,7 @@ func (s *server) Copy(ctx context.Context, req *pb.CopyRequest) (_ *emptypb.Empt
 		return nil, status.Errorf(codes.InvalidArgument, "must send attrs")
 	}
 	filename := a.Filename
-	logger.Info("copy file", filename)
+	slog.InfoContext(ctx, "copy file", filename)
 	f, immutable, err := setupOutput(a)
 	if err != nil {
 		recorder.CounterOrLog(ctx, localfileCopyFailureCounter, 1, attribute.String("reason", "setup_output_err"))
@@ -546,7 +541,6 @@ func (s *server) Copy(ctx context.Context, req *pb.CopyRequest) (_ *emptypb.Empt
 
 func (s *server) List(req *pb.ListRequest, server pb.LocalFile_ListServer) error {
 	ctx := server.Context()
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 	if req.Entry == "" {
 		recorder.CounterOrLog(ctx, localfileListFailureCounter, 1, attribute.String("reason", "missing_entry"))
@@ -558,7 +552,7 @@ func (s *server) List(req *pb.ListRequest, server pb.LocalFile_ListServer) error
 	}
 
 	// We always send back the entry first.
-	logger.Info("ls", "filename", req.Entry)
+	slog.InfoContext(ctx, "ls", "filename", req.Entry)
 	resp, err := osStat(req.Entry, false)
 	if err != nil {
 		recorder.CounterOrLog(ctx, localfileListFailureCounter, 1, attribute.String("reason", "stat_err"))
@@ -579,7 +573,7 @@ func (s *server) List(req *pb.ListRequest, server pb.LocalFile_ListServer) error
 		// Only do one level so iterate these and we're done.
 		for _, e := range entries {
 			name := filepath.Join(req.Entry, e.Name())
-			logger.Info("ls", "filename", name)
+			slog.InfoContext(ctx, "ls", "filename", name)
 			// Use lstat so that we don't return misleading directory contents from
 			// following symlinks.
 			resp, err := osStat(name, true)
@@ -707,9 +701,8 @@ func (s *server) SetFileAttributes(ctx context.Context, req *pb.SetFileAttribute
 }
 
 func (s *server) Rm(ctx context.Context, req *pb.RmRequest) (*emptypb.Empty, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger.Info("rm request", "filename", req.Filename)
+	slog.InfoContext(ctx, "rm request", "filename", req.Filename)
 	if err := util.ValidPath(req.Filename); err != nil {
 		recorder.CounterOrLog(ctx, localfileRmFailureCounter, 1, attribute.String("reason", "invalid_path"))
 		return nil, err
@@ -723,9 +716,8 @@ func (s *server) Rm(ctx context.Context, req *pb.RmRequest) (*emptypb.Empty, err
 }
 
 func (s *server) Rmdir(ctx context.Context, req *pb.RmdirRequest) (*emptypb.Empty, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger.Info("rmdir request", "directory", req.Directory)
+	slog.InfoContext(ctx, "rmdir request", "directory", req.Directory)
 	if err := util.ValidPath(req.Directory); err != nil {
 		recorder.CounterOrLog(ctx, localfileRmDirFailureCounter, 1, attribute.String("reason", "invalid_path"))
 		return nil, err
@@ -739,9 +731,8 @@ func (s *server) Rmdir(ctx context.Context, req *pb.RmdirRequest) (*emptypb.Empt
 }
 
 func (s *server) Rename(ctx context.Context, req *pb.RenameRequest) (*emptypb.Empty, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger.Info("rename request", "old", req.OriginalName, "new", req.DestinationName)
+	slog.InfoContext(ctx, "rename request", "old", req.OriginalName, "new", req.DestinationName)
 	if err := util.ValidPath(req.OriginalName); err != nil {
 		recorder.CounterOrLog(ctx, localfileRenameFailureCounter, 1, attribute.String("reason", "invalid_original_path"))
 		return nil, err
@@ -759,9 +750,8 @@ func (s *server) Rename(ctx context.Context, req *pb.RenameRequest) (*emptypb.Em
 }
 
 func (s *server) Readlink(ctx context.Context, req *pb.ReadlinkRequest) (*pb.ReadlinkReply, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger.Info("readlink", "filename", req.Filename)
+	slog.InfoContext(ctx, "readlink", "filename", req.Filename)
 	if err := util.ValidPath(req.Filename); err != nil {
 		recorder.CounterOrLog(ctx, localfileReadlinkFailureCounter, 1, attribute.String("reason", "invalid_original_path"))
 		return nil, err
@@ -784,9 +774,8 @@ func (s *server) Readlink(ctx context.Context, req *pb.ReadlinkRequest) (*pb.Rea
 }
 
 func (s *server) Symlink(ctx context.Context, req *pb.SymlinkRequest) (*emptypb.Empty, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
-	logger.Info("symlink", "target", req.Target, "linkname", req.Linkname)
+	slog.InfoContext(ctx, "symlink", "target", req.Target, "linkname", req.Linkname)
 	// We only check linkname because creating a symbolic link with a relative
 	// target is a valid use case.
 	if err := util.ValidPath(req.Linkname); err != nil {
@@ -802,7 +791,6 @@ func (s *server) Symlink(ctx context.Context, req *pb.SymlinkRequest) (*emptypb.
 }
 
 func (s *server) Mkdir(ctx context.Context, req *pb.MkdirRequest) (_ *emptypb.Empty, retErr error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 
 	if req.GetDirAttrs() == nil {
@@ -816,7 +804,7 @@ func (s *server) Mkdir(ctx context.Context, req *pb.MkdirRequest) (_ *emptypb.Em
 		return nil, status.Errorf(codes.InvalidArgument, "must send attrs")
 	}
 	dirName := dirAttrs.Filename
-	logger.Info("create directory", dirName)
+	slog.InfoContext(ctx, "create directory", dirName)
 	_, immutable, err := createDir(dirAttrs)
 	if err != nil {
 		recorder.CounterOrLog(ctx, localfileMkdirFailureCounter, 1, attribute.String("reason", "create_dir_err"))

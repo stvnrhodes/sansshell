@@ -26,11 +26,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
 	"go.opentelemetry.io/otel"
 	prometheus_exporter "go.opentelemetry.io/otel/exporters/prometheus"
 	otelmetricsdk "go.opentelemetry.io/otel/sdk/metric"
@@ -72,7 +71,7 @@ import (
 	// Process needs a real import to bind flags.
 	process "github.com/Snowflake-Labs/sansshell/services/process/server"
 	// Sansshell server needs a real import to get at Version
-	ssserver "github.com/Snowflake-Labs/sansshell/services/sansshell/server"
+	ss "github.com/Snowflake-Labs/sansshell/services/sansshell/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/service/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/sysinfo/server"
 )
@@ -129,13 +128,12 @@ func main() {
 	flag.Parse()
 
 	if version {
-		fmt.Printf("Version: %s\n", ssserver.Version)
+		fmt.Printf("Version: %s\n", ss.Version)
 		os.Exit(0)
 	}
 
-	logOpts := log.Ldate | log.Ltime | log.Lshortfile
-	logger := stdr.New(log.New(os.Stderr, "", logOpts)).WithName("sanshell-server")
-	stdr.SetVerbosity(*verbosity)
+	ss.VerbosityLevel.Set(slog.Level(-*verbosity))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: &ss.VerbosityLevel})))
 
 	// Setup exporter using the default prometheus registry
 	exporter, err := prometheus_exporter.New()
@@ -151,8 +149,8 @@ func main() {
 		log.Fatalf("failed to create OtelRecorder: %v\n", err)
 	}
 
-	policy := util.ChoosePolicy(logger, defaultPolicy, *policyFlag, *policyFile)
-	ctx := logr.NewContext(context.Background(), logger)
+	policy := util.ChoosePolicy(defaultPolicy, *policyFlag, *policyFile)
+	ctx := context.Background()
 	ctx = metrics.NewContextWithRecorder(ctx, recorder)
 
 	parsed, err := opa.NewAuthzPolicy(ctx, policy, opa.WithDenialHintsQuery("data.sansshell.authz.denial_hints"))
@@ -166,7 +164,6 @@ func main() {
 	}
 
 	server.Run(ctx,
-		server.WithLogger(logger),
 		server.WithCredSource(*credSource),
 		server.WithHostPort(*hostport),
 		server.WithParsedPolicy(parsed),

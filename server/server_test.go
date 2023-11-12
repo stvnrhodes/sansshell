@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -90,7 +89,6 @@ func TestMain(m *testing.M) {
 func TestBuildServer(t *testing.T) {
 	// Make sure a bad policy fails
 	_, err := BuildServer(
-		WithLogger(logr.Discard()),
 		WithAuthzHook(rpcauth.HostNetHook(lis.Addr())),
 	)
 	t.Log(err)
@@ -100,7 +98,6 @@ func TestBuildServer(t *testing.T) {
 func TestBuildServerWithBadPolicy(t *testing.T) {
 	// Make sure a bad policy fails
 	_, err := BuildServer(
-		WithLogger(logr.Discard()),
 		WithAuthzHook(rpcauth.HostNetHook(lis.Addr())),
 		WithPolicy("not a real policy"),
 	)
@@ -125,8 +122,8 @@ func TestServe(t *testing.T) {
 	// Add an 2nd copy of the logging interceptor just to prove adding works.
 	err = Serve("127.0.0.1:0",
 		WithPolicy(policy),
-		WithUnaryInterceptor(telemetry.UnaryServerLogInterceptor(logr.Discard())),
-		WithStreamInterceptor(telemetry.StreamServerLogInterceptor(logr.Discard())),
+		WithUnaryInterceptor(telemetry.UnaryServerLogInterceptor()),
+		WithStreamInterceptor(telemetry.StreamServerLogInterceptor()),
 	)
 	testutil.FatalOnErr("Serve 127.0.0.1:0 with extra interceptors", err, t)
 }

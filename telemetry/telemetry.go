@@ -21,10 +21,10 @@ package telemetry
 import (
 	"context"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/Snowflake-Labs/sansshell/auth/opa/rpcauth"
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -38,16 +38,13 @@ const (
 // UnaryClientLogInterceptor returns a new grpc.UnaryClientInterceptor that logs
 // outgoing requests using the supplied logger, as well as injecting it into the
 // context of the invoker.
-func UnaryClientLogInterceptor(logger logr.Logger) grpc.UnaryClientInterceptor {
+func UnaryClientLogInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		l := logger.WithValues("method", method, "target", cc.Target())
-		logCtx := logr.NewContext(ctx, l)
-		logCtx = passAlongMetadata(logCtx)
-		l = logMetadata(logCtx, l)
-		l.Info("new client request")
-		err := invoker(logCtx, method, req, reply, cc, opts...)
+		ctx = passAlongMetadata(ctx)
+		slog.InfoContext(ctx, "new client request", "method", method, "target", cc.Target())
+		err := invoker(ctx, method, req, reply, cc, opts...)
 		if err != nil {
-			l.Error(err, "")
+			slog.ErrorContext(ctx, "client request", "err", err)
 		}
 		return err
 	}
@@ -56,21 +53,17 @@ func UnaryClientLogInterceptor(logger logr.Logger) grpc.UnaryClientInterceptor {
 // StreamClientLogInterceptor returns a new grpc.StreamClientInterceptor that logs
 // client requests using the supplied logger, as well as injecting it into the context
 // of the created stream.
-func StreamClientLogInterceptor(logger logr.Logger) grpc.StreamClientInterceptor {
+func StreamClientLogInterceptor() grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-		l := logger.WithValues("method", method, "target", cc.Target())
-		logCtx := logr.NewContext(ctx, l)
-		logCtx = passAlongMetadata(logCtx)
-		l = logMetadata(logCtx, l)
-		l.Info("new client stream")
-		stream, err := streamer(logCtx, desc, cc, method, opts...)
+		ctx = passAlongMetadata(ctx)
+		slog.InfoContext(ctx, "new client stream", "method", method, "target", cc.Target())
+		stream, err := streamer(ctx, desc, cc, method, opts...)
 		if err != nil {
-			l.Error(err, "create stream")
+			slog.ErrorContext(ctx, "create stream", "err", err)
 			return nil, err
 		}
 		return &loggedClientStream{
 			ClientStream: stream,
-			logger:       l,
 		}, nil
 	}
 }
@@ -79,31 +72,31 @@ func hasSpan(ctx context.Context) bool {
 	return trace.SpanContextFromContext(ctx).IsValid()
 }
 
-// Add trace ID to logger if there's an active span
-func logOtelTraceID(ctx context.Context, l logr.Logger) logr.Logger {
-	if hasSpan(ctx) {
-		spanCtx := trace.SpanContextFromContext(ctx)
-		l = l.WithValues(sansshellTraceIDKey, spanCtx.TraceID().String())
-	}
+// // Add trace ID to logger if there's an active span
+// func logOtelTraceID(ctx context.Context, l logr.Logger) logr.Logger {
+// 	if hasSpan(ctx) {
+// 		spanCtx := trace.SpanContextFromContext(ctx)
+// 		l = l.WithValues(sansshellTraceIDKey, spanCtx.TraceID().String())
+// 	}
 
-	return l
-}
+// 	return l
+// }
 
-func logMetadata(ctx context.Context, l logr.Logger) logr.Logger {
-	// Add any sansshell specific metadata from incoming context to the logging we do.
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		for k, v := range md {
-			if strings.HasPrefix(k, sansshellMetadata) {
-				for _, val := range v {
-					l = l.WithValues(k, val)
-				}
-			}
-		}
-	}
-	l = logOtelTraceID(ctx, l)
-	return l
-}
+// func logMetadata(ctx context.Context, l logr.Logger) logr.Logger {
+// 	// Add any sansshell specific metadata from incoming context to the logging we do.
+// 	md, ok := metadata.FromIncomingContext(ctx)
+// 	if ok {
+// 		for k, v := range md {
+// 			if strings.HasPrefix(k, sansshellMetadata) {
+// 				for _, val := range v {
+// 					l = l.WithValues(k, val)
+// 				}
+// 			}
+// 		}
+// 	}
+// 	l = logOtelTraceID(ctx, l)
+// 	return l
+// }
 
 func passAlongMetadata(ctx context.Context) context.Context {
 	// See if we got any metadata that has our prefix and pass it along
@@ -123,43 +116,34 @@ func passAlongMetadata(ctx context.Context) context.Context {
 
 type loggedClientStream struct {
 	grpc.ClientStream
-	logger logr.Logger
-}
-
-// See: grpc.ClientStream.Context()
-func (l *loggedClientStream) Context() context.Context {
-	// Get the stream context and make sure our logger is attached.
-	ctx := l.ClientStream.Context()
-	ctx = logr.NewContext(ctx, l.logger)
-	return ctx
 }
 
 // See: grpc.ClientStream.SendMsg()
 func (l *loggedClientStream) SendMsg(m interface{}) error {
-	l.logger.V(1).Info("SendMsg")
+	slog.DebugContext(l.Context(), "SendMsg", "msg", m)
 	err := l.ClientStream.SendMsg(m)
 	if err != nil {
-		l.logger.Error(err, "SendMsg")
+		slog.ErrorContext(l.Context(), "SendMsg", "err", err)
 	}
 	return err
 }
 
 // See: grpc.ClientStream.RecvMsg()
 func (l *loggedClientStream) RecvMsg(m interface{}) error {
-	l.logger.V(1).Info("RecvMsg")
+	slog.DebugContext(l.Context(), "RecvMsg", "msg", m)
 	err := l.ClientStream.RecvMsg(m)
 	if err != nil && err != io.EOF {
-		l.logger.Error(err, "RecvMsg")
+		slog.ErrorContext(l.Context(), "RecvMsg", "err", err)
 	}
 	return err
 }
 
 // See: grpc.ClientStream.CloseSend()
 func (l *loggedClientStream) CloseSend() error {
-	l.logger.Info("CloseSend")
+	slog.Info("CloseSend")
 	err := l.ClientStream.CloseSend()
 	if err != nil {
-		l.logger.Error(err, "CloseSend")
+		slog.Error("CloseSend", "err", err)
 	}
 	return err
 }
@@ -169,19 +153,12 @@ func (l *loggedClientStream) CloseSend() error {
 // context of downstream handlers. If incoming calls require client side provided justification
 // (which is logged) then the justification parameter should be true and a required
 // key of ReqJustKey must be in the context when the interceptor runs.
-func UnaryServerLogInterceptor(logger logr.Logger) grpc.UnaryServerInterceptor {
+func UnaryServerLogInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		l := logger.WithValues("method", info.FullMethod)
-		p := rpcauth.PeerInputFromContext(ctx)
-		if p != nil {
-			l = l.WithValues("peer", p)
-		}
-		l = logMetadata(ctx, l)
-		l.Info("new request")
-		logCtx := logr.NewContext(ctx, l)
-		resp, err := handler(logCtx, req)
+		slog.InfoContext(ctx, "new request", "method", info.FullMethod, "peer", rpcauth.PeerInputFromContext(ctx))
+		resp, err := handler(ctx, req)
 		if err != nil {
-			l.Error(err, "handler")
+			slog.ErrorContext(ctx, "handler", "err", err)
 		}
 		return resp, err
 	}
@@ -192,22 +169,15 @@ func UnaryServerLogInterceptor(logger logr.Logger) grpc.UnaryServerInterceptor {
 // context to stream handlers. If incoming calls require client side provided justification
 // (which is logged) then the justification parameter should be true and a required
 // key of ReqJustKey must be in the context when the interceptor runs.
-func StreamServerLogInterceptor(logger logr.Logger) grpc.StreamServerInterceptor {
+func StreamServerLogInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		l := logger.WithValues("method", info.FullMethod)
-		p := rpcauth.PeerInputFromContext(ss.Context())
-		if p != nil {
-			l = l.WithValues("peer", p)
-		}
-		l = logMetadata(ss.Context(), l)
-		l.Info("new stream")
+		slog.Info("new stream", "method", info.FullMethod, "peer", rpcauth.PeerInputFromContext(ss.Context()))
 		stream := &loggedStream{
 			ServerStream: ss,
-			logger:       l,
 		}
 		err := handler(srv, stream)
 		if err != nil {
-			l.Error(err, "handler")
+			slog.Error("handler", "err", err)
 		}
 		return err
 	}
@@ -216,30 +186,22 @@ func StreamServerLogInterceptor(logger logr.Logger) grpc.StreamServerInterceptor
 // loggedStream wraps a grpc.ServerStream with additional logging.
 type loggedStream struct {
 	grpc.ServerStream
-	logger logr.Logger
-}
-
-func (l *loggedStream) Context() context.Context {
-	// Get the stream context and make sure our logger is attached.
-	ctx := l.ServerStream.Context()
-	ctx = logr.NewContext(ctx, l.logger)
-	return ctx
 }
 
 func (l *loggedStream) SendMsg(m interface{}) error {
-	l.logger.V(1).Info("SendMsg")
+	slog.DebugContext(l.Context(), "RecvMsg", "msg", m)
 	err := l.ServerStream.SendMsg(m)
 	if err != nil {
-		l.logger.Error(err, "SendMsg")
+		slog.ErrorContext(l.Context(), "SendMsg", "err", err)
 	}
 	return err
 }
 
 func (l *loggedStream) RecvMsg(m interface{}) error {
-	l.logger.V(1).Info("RecvMsg")
+	slog.DebugContext(l.Context(), "RecvMsg", "msg", m)
 	err := l.ServerStream.RecvMsg(m)
 	if err != nil && err != io.EOF {
-		l.logger.Error(err, "RecvMsg")
+		slog.ErrorContext(l.Context(), "RecvMsg", "err", err)
 	}
 	return err
 }

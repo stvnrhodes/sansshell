@@ -24,12 +24,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
 
-	"github.com/go-logr/logr"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -50,7 +50,6 @@ import (
 // to run a proxy server. Documentation provided below in each
 // WithXXX function.
 type runState struct {
-	logger                   logr.Logger
 	policy                   *opa.AuthzPolicy
 	clientPolicy             *opa.AuthzPolicy
 	credSource               string
@@ -79,15 +78,6 @@ type optionFunc func(context.Context, *runState) error
 
 func (o optionFunc) apply(ctx context.Context, r *runState) error {
 	return o(ctx, r)
-}
-
-// WithLogger applies a logger that is used for all logging. A discard
-// based one is used if none is supplied.
-func WithLogger(l logr.Logger) Option {
-	return optionFunc(func(_ context.Context, r *runState) error {
-		r.logger = l
-		return nil
-	})
 }
 
 // WithPolicy applies an OPA policy used against incoming RPC requests.
@@ -345,12 +335,10 @@ func WithOtelTracing(interceptorOpts ...otelgrpc.Option) Option {
 // using the flags above to provide credentials. An address hook (based on the remote host) with always be added.
 // As this is intended to be called from main() it doesn't return errors and will instead exit on any errors.
 func Run(ctx context.Context, opts ...Option) {
-	rs := &runState{
-		logger: logr.Discard(), // Set a default so we can use below.
-	}
+	rs := &runState{}
 	for _, o := range opts {
 		if err := o.apply(ctx, rs); err != nil {
-			rs.logger.Error(err, "error applying option")
+			slog.ErrorContext(ctx, "error applying option", "err", err)
 			os.Exit(1)
 		}
 	}
@@ -358,37 +346,37 @@ func Run(ctx context.Context, opts ...Option) {
 	// If there's a debug port, we want to start it early
 	if rs.debughandler != nil && rs.debugport != "" {
 		go func() {
-			rs.logger.Error(http.ListenAndServe(rs.debugport, rs.debughandler), "Debug handler unexpectedly exited")
+			slog.ErrorContext(ctx, "Debug handler unexpectedly exited", "err", http.ListenAndServe(rs.debugport, rs.debughandler))
 		}()
 	}
 
 	// Start metrics endpoint if both metrics port and handler are configured
 	if rs.metricshandler != nil && rs.metricsport != "" {
 		go func() {
-			rs.logger.Error(http.ListenAndServe(rs.metricsport, rs.metricshandler), "Metrics handler unexpectedly exited")
+			slog.ErrorContext(ctx, "Metrics handler unexpectedly exited", "err", http.ListenAndServe(rs.metricsport, rs.metricshandler))
 		}()
 	}
 
 	serverCreds, err := extractServerTransportCredentialsFromRunState(ctx, rs)
 
 	if err != nil {
-		rs.logger.Error(err, "unable to extract transport credentials from runstate for the server", "credsource", rs.credSource)
+		slog.ErrorContext(ctx, "unable to extract transport credentials from runstate for the server", "credsource", rs.credSource, "err", err)
 		os.Exit(1)
 	}
 
 	clientCreds, err := extractClientTransportCredentialsFromRunState(ctx, rs)
 
 	if err != nil {
-		rs.logger.Error(err, "unable to extract transport credentials from runstate for the client", "credsource", rs.credSource)
+		slog.ErrorContext(ctx, "unable to extract transport credentials from runstate for the client", "credsource", rs.credSource, "err", err)
 		os.Exit(1)
 	}
 
 	lis, err := net.Listen("tcp", rs.hostport)
 	if err != nil {
-		rs.logger.Error(err, "net.Listen", "hostport", rs.hostport)
+		slog.ErrorContext(ctx, "net.Listen", "hostport", rs.hostport, "err", err)
 		os.Exit(1)
 	}
-	rs.logger.Info("listening", "hostport", rs.hostport)
+	slog.InfoContext(ctx, "listening", "hostport", rs.hostport)
 
 	addressHook := rpcauth.HookIf(rpcauth.HostNetHook(lis.Addr()), func(input *rpcauth.RPCAuthInput) bool {
 		return input.Host == nil || input.Host.Net == nil
@@ -409,8 +397,8 @@ func Run(ctx context.Context, opts ...Option) {
 	unaryClient := rs.unaryClientInterceptors
 	streamClient := rs.streamClientInterceptors
 	// Execute log interceptor after other interceptors so that metadata gets logged
-	unaryClient = append(unaryClient, telemetry.UnaryClientLogInterceptor(rs.logger))
-	streamClient = append(streamClient, telemetry.StreamClientLogInterceptor(rs.logger))
+	unaryClient = append(unaryClient, telemetry.UnaryClientLogInterceptor())
+	streamClient = append(streamClient, telemetry.StreamClientLogInterceptor())
 	// Execute authz after logger is setup
 	if clientAuthz != nil {
 		unaryClient = append(unaryClient, clientAuthz.AuthorizeClient)
@@ -424,7 +412,7 @@ func Run(ctx context.Context, opts ...Option) {
 	targetDialer := server.NewDialer(dialOpts...)
 
 	svcMap := server.LoadGlobalServiceMap()
-	rs.logger.Info("loaded service map", "serviceMap", svcMap)
+	slog.InfoContext(ctx, "loaded service map", "serviceMap", svcMap)
 	server := server.New(targetDialer, authz)
 
 	// Even though the proxy RPC is streaming we have unary RPCs (logging, reflection) we
@@ -433,7 +421,7 @@ func Run(ctx context.Context, opts ...Option) {
 	unaryServer = append(
 		unaryServer,
 		// Execute log interceptor after other interceptors so that metadata gets logged
-		telemetry.UnaryServerLogInterceptor(rs.logger),
+		telemetry.UnaryServerLogInterceptor(),
 		// Execute authz after logger is setup
 		authz.Authorize,
 	)
@@ -441,7 +429,7 @@ func Run(ctx context.Context, opts ...Option) {
 	streamServer = append(
 		streamServer,
 		// Execute log interceptor after other interceptors so that metadata gets logged
-		telemetry.StreamServerLogInterceptor(rs.logger),
+		telemetry.StreamServerLogInterceptor(),
 		// Execute authz after logger is setup
 		authz.AuthorizeStream,
 	)
@@ -460,11 +448,11 @@ func Run(ctx context.Context, opts ...Option) {
 		s(g)
 	}
 
-	rs.logger.Info("initialized proxy service", "credsource", rs.credSource)
-	rs.logger.Info("serving..")
+	slog.InfoContext(ctx, "initialized proxy service", "credsource", rs.credSource)
+	slog.InfoContext(ctx, "serving..")
 
 	if err := g.Serve(lis); err != nil {
-		rs.logger.Error(err, "grpcserver.Serve()")
+		slog.ErrorContext(ctx, "grpcserver.Serve()", "err", err)
 		os.Exit(1)
 	}
 }

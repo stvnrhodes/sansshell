@@ -21,7 +21,6 @@ import (
 	"context"
 	"net"
 
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,11 +45,9 @@ var (
 type server struct{}
 
 func (s *server) Lookup(ctx context.Context, req *pb.LookupRequest) (*pb.LookupReply, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	recorder := metrics.RecorderFromContextOrNoop(ctx)
 	hostname := req.GetHostname()
 
-	logger.Info("dns request", "hostname", hostname)
 	// TODO(elsesiy): We only care about ipv4 for now but we could allow clients to explicitly specify opts such as network, prefer go resolver, etc.
 	ips, err := resolver(ctx, "ip4", hostname)
 	if err != nil {

@@ -28,8 +28,7 @@ import (
 
 // Server is used to implement the gRPC Server
 type Server struct {
-	mu      sync.RWMutex
-	lastVal int32
+	mu sync.RWMutex
 }
 
 // Register is called to expose this handler to the gRPC server

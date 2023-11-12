@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +30,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -230,8 +230,6 @@ func (l *LimitedBuffer) Truncated() bool {
 // Errors returned directly will be a status.Error and Error will be whatever the exec
 // library returns.
 func RunCommand(ctx context.Context, bin string, args []string, opts ...Option) (*CommandRun, error) {
-	logger := logr.FromContextOrDiscard(ctx)
-
 	if !filepath.IsAbs(bin) {
 		return nil, status.Errorf(codes.InvalidArgument, "%s is not an absolute path", bin)
 	}
@@ -276,7 +274,7 @@ func RunCommand(ctx context.Context, bin string, args []string, opts ...Option) 
 		cmd.SysProcAttr.Credential.Uid = options.uid
 		cmd.SysProcAttr.Credential.Gid = options.gid
 	}
-	logger.Info("executing local command", "cmd", cmd.String())
+	slog.InfoContext(ctx, "executing local command", "cmd", cmd.String())
 	run.Error = cmd.Run()
 	run.ExitCode = cmd.ProcessState.ExitCode()
 	// If this was an error it could be two different things. Just exiting non-zero results in an exec.ExitError

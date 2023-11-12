@@ -19,9 +19,8 @@ package server
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	pb "github.com/Snowflake-Labs/sansshell/services/sansshell"
@@ -31,13 +30,12 @@ import (
 func (s *Server) SetVerbosity(ctx context.Context, req *pb.SetVerbosityRequest) (*pb.VerbosityReply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	logger := logr.FromContextOrDiscard(ctx)
-	old := int32(stdr.SetVerbosity(int(req.Level)))
-	logger.Info("set-verbosity", "new level", req.Level, "old level", old)
+	old := -int32(VerbosityLevel.Level())
+	slog.InfoContext(ctx, "set-verbosity", "new level", req.Level, "old level", old)
+	VerbosityLevel.Set(slog.Level(-req.Level))
 	reply := &pb.VerbosityReply{
 		Level: old,
 	}
-	s.lastVal = req.Level
 	return reply, nil
 }
 
@@ -45,5 +43,8 @@ func (s *Server) SetVerbosity(ctx context.Context, req *pb.SetVerbosityRequest) 
 func (s *Server) GetVerbosity(ctx context.Context, req *emptypb.Empty) (*pb.VerbosityReply, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return &pb.VerbosityReply{Level: s.lastVal}, nil
+	return &pb.VerbosityReply{Level: -int32(VerbosityLevel.Level())}, nil
 }
+
+// VerbosityLevel is a global variable used when configuring verbosity
+var VerbosityLevel slog.LevelVar

@@ -22,9 +22,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
-	"github.com/go-logr/logr"
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/open-policy-agent/opa/topdown"
@@ -155,13 +155,12 @@ func NewAuthzPolicy(ctx context.Context, policy string, opts ...Option) (*AuthzP
 // iff the evaulation was successful, and the operation represented by
 // `input` is permitted by the policy.
 func (q *AuthzPolicy) Eval(ctx context.Context, input interface{}) (bool, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	results, err := q.query.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
 		return false, fmt.Errorf("authz policy evaluation error: %w", err)
 	}
 	if q.b.Len() > 0 {
-		logger.V(1).Info("print statements", "buffer", q.b.String())
+		slog.DebugContext(ctx, "print statements", "buffer", q.b.String())
 	}
 	return results.Allowed(), nil
 }

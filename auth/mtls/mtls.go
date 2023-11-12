@@ -23,12 +23,12 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sort"
 	"sync"
 
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
-	"github.com/go-logr/logr"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -92,19 +92,15 @@ type WrappedTransportCredentials struct {
 	serverName string // GUARDED_BY(mu)
 	mtlsLoader CredentialsLoader
 	loader     func(context.Context, string) (credentials.TransportCredentials, error)
-	logger     logr.Logger
 	recorder   metrics.MetricsRecorder
 }
 
 func (w *WrappedTransportCredentials) checkRefresh() error {
 	if w.mtlsLoader.CertsRefreshed() {
-		w.logger.Info("certs need reloading")
-		// At least provide the logger we saved before we call into the loader
-		// or we lose all debugability.
+		slog.Info("certs need reloading")
 		ctx := context.Background()
-		ctx = logr.NewContext(ctx, w.logger)
 		newCreds, err := w.loader(ctx, w.loaderName)
-		w.logger.V(1).Info("newCreds", "creds", newCreds, "error", err)
+		slog.Debug("newCreds", "creds", newCreds, "error", err)
 		if err != nil {
 			return err
 		}
@@ -166,7 +162,6 @@ func (w *WrappedTransportCredentials) Clone() credentials.TransportCredentials {
 		loaderName: w.loaderName,
 		loader:     w.loader,
 		mtlsLoader: w.mtlsLoader,
-		logger:     w.logger,
 	}
 	return wrapped
 }

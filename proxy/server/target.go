@@ -21,11 +21,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -85,9 +85,6 @@ type TargetStream struct {
 
 	// A channel used to carry an error from proxy-initiated closure
 	errChan chan error
-
-	// A logger used to log additional information
-	logger logr.Logger
 
 	// The authorizer (from the stream set) used to OPA check requests
 	// sent to this stream.
@@ -201,7 +198,7 @@ func (s *TargetStream) Run(nonce uint32, replyChan chan *pb.ProxyReply) {
 		grpcConn, err := s.dialer.DialContext(dialCtx, s.target, opts...)
 		if err != nil {
 			// We cannot create a new stream to the target. So we need to cancel this stream.
-			s.logger.Info("unable to create stream", "status", err)
+			slog.InfoContext(ctx, "unable to create stream", "status", err)
 			s.cancelFunc()
 			return err
 		}
@@ -209,7 +206,7 @@ func (s *TargetStream) Run(nonce uint32, replyChan chan *pb.ProxyReply) {
 		grpcStream, err := s.grpcConn.NewStream(s.ctx, s.serviceMethod.StreamDesc(), s.serviceMethod.FullName())
 		if err != nil {
 			// We cannot create a new stream to the target. So we need to cancel this stream.
-			s.logger.Info("unable to create stream", "status", err)
+			slog.InfoContext(ctx, "unable to create stream", "status", err)
 			return err
 		}
 
@@ -339,7 +336,7 @@ func (s *TargetStream) Run(nonce uint32, replyChan chan *pb.ProxyReply) {
 	case err = <-s.errChan:
 	default:
 	}
-	s.logger.Info("finished", "status", err)
+	slog.InfoContext(ctx, "finished", "status", err)
 	reply := &pb.ProxyReply{
 		Reply: &pb.ProxyReply_ServerClose{
 			ServerClose: &pb.ServerClose{
@@ -353,7 +350,6 @@ func (s *TargetStream) Run(nonce uint32, replyChan chan *pb.ProxyReply) {
 
 // NewTargetStream creates a new TargetStream for calling `method` on `target`
 func NewTargetStream(ctx context.Context, target string, dialer TargetDialer, dialTimeout *time.Duration, method *ServiceMethod, authorizer *rpcauth.Authorizer) (*TargetStream, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 
 	ts := &TargetStream{
@@ -369,8 +365,7 @@ func NewTargetStream(ctx context.Context, target string, dialer TargetDialer, di
 		dialer:        dialer,
 		dialTimeout:   dialTimeout,
 	}
-	ts.logger = logger.WithValues("stream", ts.String())
-	ts.logger.Info("created target stream")
+	slog.InfoContext(ctx, "created target stream")
 	return ts, nil
 }
 
