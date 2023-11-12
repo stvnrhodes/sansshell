@@ -72,31 +72,31 @@ func hasSpan(ctx context.Context) bool {
 	return trace.SpanContextFromContext(ctx).IsValid()
 }
 
-// // Add trace ID to logger if there's an active span
-// func logOtelTraceID(ctx context.Context, l logr.Logger) logr.Logger {
-// 	if hasSpan(ctx) {
-// 		spanCtx := trace.SpanContextFromContext(ctx)
-// 		l = l.WithValues(sansshellTraceIDKey, spanCtx.TraceID().String())
-// 	}
+// LogHandler adds extra SansShell-specific information from the context as log attributes
+func LogHandler(h slog.Handler) slog.Handler { return logHandler{h} }
 
-// 	return l
-// }
+type logHandler struct {
+	slog.Handler
+}
 
-// func logMetadata(ctx context.Context, l logr.Logger) logr.Logger {
-// 	// Add any sansshell specific metadata from incoming context to the logging we do.
-// 	md, ok := metadata.FromIncomingContext(ctx)
-// 	if ok {
-// 		for k, v := range md {
-// 			if strings.HasPrefix(k, sansshellMetadata) {
-// 				for _, val := range v {
-// 					l = l.WithValues(k, val)
-// 				}
-// 			}
-// 		}
-// 	}
-// 	l = logOtelTraceID(ctx, l)
-// 	return l
-// }
+func (h logHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Add trace ID to logger if there's an active span
+	if trace.SpanContextFromContext(ctx).IsValid() {
+		r.AddAttrs(slog.String(sansshellTraceIDKey, trace.SpanContextFromContext(ctx).TraceFlags().String()))
+	}
+	// Add any sansshell specific metadata from incoming context to the logging we do.
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		for k, v := range md {
+			if strings.HasPrefix(k, sansshellMetadata) {
+				for _, val := range v {
+					r.AddAttrs(slog.String(k, val))
+				}
+			}
+		}
+	}
+	return h.Handler.Handle(ctx, r)
+}
 
 func passAlongMetadata(ctx context.Context) context.Context {
 	// See if we got any metadata that has our prefix and pass it along

@@ -40,6 +40,7 @@ import (
 	"github.com/Snowflake-Labs/sansshell/cmd/proxy-server/server"
 	"github.com/Snowflake-Labs/sansshell/cmd/util"
 	ss "github.com/Snowflake-Labs/sansshell/services/sansshell/server"
+	"github.com/Snowflake-Labs/sansshell/telemetry"
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
 
 	// Import services here to make them proxy-able
@@ -98,7 +99,7 @@ func main() {
 	}
 
 	ss.VerbosityLevel.Set(slog.Level(-*verbosity))
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: &ss.VerbosityLevel})))
+	slog.SetDefault(slog.New(telemetry.LogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: &ss.VerbosityLevel}))))
 
 	// Setup exporter using the default prometheus registry
 	exporter, err := prometheus_exporter.New()

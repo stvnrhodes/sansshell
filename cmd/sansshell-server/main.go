@@ -49,6 +49,7 @@ import (
 	"github.com/Snowflake-Labs/sansshell/cmd/sansshell-server/server"
 	"github.com/Snowflake-Labs/sansshell/cmd/util"
 	ssutil "github.com/Snowflake-Labs/sansshell/services/util"
+	"github.com/Snowflake-Labs/sansshell/telemetry"
 	"github.com/Snowflake-Labs/sansshell/telemetry/metrics"
 
 	// Import the server modules you want to expose, they automatically register
@@ -133,7 +134,7 @@ func main() {
 	}
 
 	ss.VerbosityLevel.Set(slog.Level(-*verbosity))
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: &ss.VerbosityLevel})))
+	slog.SetDefault(slog.New(telemetry.LogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: &ss.VerbosityLevel}))))
 
 	// Setup exporter using the default prometheus registry
 	exporter, err := prometheus_exporter.New()
