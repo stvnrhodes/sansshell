@@ -1,0 +1,84 @@
+/* Copyright (c) 2024 Snowflake Inc. All rights reserved.
+
+   Licensed under the Apache License, Version 2.0 (the
+   "License"); you may not use this file except in compliance
+   with the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing,
+   software distributed under the License is distributed on an
+   "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+   KIND, either express or implied.  See the License for the
+   specific language governing permissions and limitations
+   under the License.
+*/
+// P
+
+syntax = "proto3";
+
+option go_package = "github.com/Snowflake-Labs/sansshell/services/psql";
+
+import "google/protobuf/timestamp.proto";
+
+package Psql;
+
+// The Psql service definition.
+service Psql {
+  // Exec runs a SQL statement against a postgres database.
+  rpc Exec (ExecRequest) returns (ExecResponse) {}
+  // Query runs a SQL query against a postgres database and returns results.
+  // This returns all results in a single response, so it's unsuitable for
+  // results larger than a few megabytes.
+  rpc Query (QueryRequest) returns (QueryResponse) {}
+}
+
+// ExecRequest is an SQL statement to run
+message ExecRequest {
+  string query = 1;
+  repeated string parameters = 2;
+}
+
+// ExecResponse is results from an SQL statement
+message ExecResponse {
+  int64 rows_affected = 1;
+}
+  
+
+// QueryRequest is an SQL query to run
+message QueryRequest {
+  string query = 1;
+  repeated string parameters = 2;
+}
+
+// ColumnInfo holds column-level information for a SQL response
+message ColumnInfo {
+  string name = 1;
+}
+
+// Row is a single row in a SQL response
+message Row {
+  message Item {
+    // Value is the value of an item. It will be empty if null.
+    oneof value {
+      string string_value = 1;
+      int64 int_value = 2;
+      double number_value = 3;
+      bytes byte_value = 4;
+      bool bool_value = 5;
+      google.protobuf.Timestamp time_value = 6;
+    }
+  }
+  // Each row has one item per column in the results
+  repeated Item item = 1;
+}
+
+// QueryResponse has a response from an SQL query
+// This is used in a streaming response, with one message per row.
+message QueryResponse {
+  // columninfo contains information on the columns for the query
+  repeated ColumnInfo columninfo = 1;
+  // rows contains query results
+  repeated Row rows = 2;
+}
+

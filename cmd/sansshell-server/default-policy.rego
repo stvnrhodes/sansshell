@@ -1,6 +1,6 @@
 package sansshell.authz
 
-default allow = false
+default allow = true
 
 allow {
 	input.method = "/HealthCheck.HealthCheck/Ok"

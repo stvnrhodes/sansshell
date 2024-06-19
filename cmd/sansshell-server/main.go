@@ -58,19 +58,20 @@ import (
 	ansible "github.com/Snowflake-Labs/sansshell/services/ansible/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/dns/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/exec/server"
-	_ "github.com/Snowflake-Labs/sansshell/services/httpoverrpc/server"
-	_ "github.com/Snowflake-Labs/sansshell/services/tlsinfo/server"
-
 	fdbserver "github.com/Snowflake-Labs/sansshell/services/fdb/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/healthcheck/server"
+	_ "github.com/Snowflake-Labs/sansshell/services/httpoverrpc/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/localfile/server"
 	mpa "github.com/Snowflake-Labs/sansshell/services/mpa/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/power/server"
+	_ "github.com/Snowflake-Labs/sansshell/services/tlsinfo/server"
 
 	// Packages needs a real import to bind flags.
 	packages "github.com/Snowflake-Labs/sansshell/services/packages/server"
 	// Process needs a real import to bind flags.
 	process "github.com/Snowflake-Labs/sansshell/services/process/server"
+	// psql needs a real import to bind flags.
+	psql "github.com/Snowflake-Labs/sansshell/services/psql/server"
 	// Sansshell server needs a real import to get at Version
 	ssserver "github.com/Snowflake-Labs/sansshell/services/sansshell/server"
 	_ "github.com/Snowflake-Labs/sansshell/services/service/server"
@@ -121,6 +122,12 @@ func init() {
 	flag.StringVar(&process.PsBin, "ps-bin", process.PsBin, "Path to the ps binary")
 	flag.StringVar(&process.PstackBin, "pstack-bin", process.PstackBin, "Path to the pstack binary")
 	flag.StringVar(&process.GcoreBin, "gcore-bin", process.GcoreBin, "Path to the gcore binary")
+
+	flag.StringVar(&psql.AuthMethod, "psql-auth-method", "", "Authentication method when proxying postgres.")
+	flag.StringVar(&psql.DatabaseHost, "psql-database-host", "", "Hostname for reaching a database when proxying postgres.")
+	flag.StringVar(&psql.DatabaseName, "psql-database-name", "", "Database name when proxying postgres.")
+	flag.StringVar(&psql.DatabaseUser, "psql-database-user", "", "User for requests to database when proxying postgres.")
+	flag.StringVar(&psql.AWSRegion, "psql-aws-region", "", "Location of RDS database in AWS when proxying postgres.")
 
 	flag.BoolVar(&version, "version", false, "Returns the server built version from the sansshell server package")
 }

@@ -53,6 +53,7 @@ import (
 	_ "github.com/Snowflake-Labs/sansshell/services/mpa"
 	_ "github.com/Snowflake-Labs/sansshell/services/packages"
 	_ "github.com/Snowflake-Labs/sansshell/services/process"
+	_ "github.com/Snowflake-Labs/sansshell/services/psql"
 	_ "github.com/Snowflake-Labs/sansshell/services/sansshell"
 	_ "github.com/Snowflake-Labs/sansshell/services/service"
 	_ "github.com/Snowflake-Labs/sansshell/services/sysinfo"
